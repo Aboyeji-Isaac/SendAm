@@ -1,4 +1,4 @@
-# Issue Closure Checklist
+#Issue Closure Checklist
 
 Use this template when closing a GitHub issue or merging a PR that resolves one.
 Every acceptance criterion must be backed by evidence that is independently
