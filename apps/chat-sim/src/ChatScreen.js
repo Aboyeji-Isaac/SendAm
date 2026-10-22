@@ -127,6 +127,9 @@ export default function ChatScreen() {
   const [isListening, setIsListening] = useState(false);
   const [voiceSynthesizeEnabled, setVoiceSynthesizeEnabled] = useState(true);
   const [devModeOpen, setDevModeOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const recordTimerRef = useRef(null);
   const [disabledReplies, setDisabledReplies] = useState({});
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
@@ -296,6 +299,62 @@ export default function ChatScreen() {
     }
   }
 
+  function startVoiceRecording() {
+    if (sending) return;
+    setIsRecording(true);
+    setRecordSeconds(0);
+    clearInterval(recordTimerRef.current);
+    recordTimerRef.current = setInterval(() => {
+      setRecordSeconds((sec) => sec + 1);
+    }, 1000);
+  }
+
+  function stopVoiceRecordingAndSend() {
+    if (!isRecording) return;
+    clearInterval(recordTimerRef.current);
+    setIsRecording(false);
+    const duration = recordSeconds || 1;
+    setRecordSeconds(0);
+
+    const voiceId = `v-${Date.now()}`;
+    const formatted = `0:${duration < 10 ? '0' : ''}${duration}`;
+    const voiceMsg = {
+      id: voiceId,
+      sender: 'user',
+      type: 'voice',
+      isVoice: true,
+      duration,
+      text: `🎤 Voice note (${formatted})`,
+    };
+
+    setMessages((prev) => [...prev, voiceMsg]);
+
+    // Send Nigerian Pidgin / English voice intent to SendAm bot
+    const sampleVoiceIntents = [
+      'Abeg send 5000 Naira to +2348000000002',
+      'Send 10 USDC to +2348000000003',
+      'Pay 2500 NGN to +2348000000004 for fuel',
+    ];
+    const transcript = sampleVoiceIntents[messages.length % sampleVoiceIntents.length];
+    handleSend(transcript, true);
+  }
+
+  function cancelVoiceRecording() {
+    clearInterval(recordTimerRef.current);
+    setIsRecording(false);
+    setRecordSeconds(0);
+  }
+
+  async function handleSend(customText, skipUserBubble = false) {
+    const text = (customText !== undefined ? customText : inputText).trim();
+    if (!text || sending) return;
+
+    if (!skipUserBubble) {
+      setMessages((prev) => [
+        ...prev,
+        { id: `u-${Date.now()}`, text, sender: 'user' },
+      ]);
+    }
   async function handleSend(customText) {
     const attachment = previewAttachment;
     const text = (
@@ -713,6 +772,57 @@ export default function ChatScreen() {
       )}
 
       <View className="flex-row items-center gap-2 px-3 py-2 border-t border-gray-200">
+        {isRecording ? (
+          <View
+            className="flex-1 flex-row items-center justify-between bg-red-50 border border-red-200 rounded-full px-4 py-2"
+            testID="audio-recording-bar"
+          >
+            <View className="flex-row items-center gap-2">
+              <View className="w-2.5 h-2.5 rounded-full bg-red-600" />
+              <Text className="text-sm font-semibold text-red-600 font-mono" testID="recording-timer">
+                0:{recordSeconds < 10 ? '0' : ''}{recordSeconds}
+              </Text>
+            </View>
+
+            <View className="flex-row items-center gap-1">
+              {[8, 16, 22, 12, 20, 14, 24, 10, 18].map((h, i) => (
+                <View
+                  key={i}
+                  style={{ height: recordSeconds % 2 === 0 ? h : h * 0.7 }}
+                  className="w-1 bg-red-500 rounded-full"
+                />
+              ))}
+            </View>
+
+            <Pressable onPress={cancelVoiceRecording} testID="cancel-recording-button">
+              <Text className="text-xs font-semibold text-gray-500">Cancel</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <TextInput
+              className="flex-1 border border-gray-300 rounded-full px-4 py-2 text-base"
+              placeholder="Type a message or hold mic"
+              value={inputText}
+              onChangeText={setInputText}
+              onSubmitEditing={() => handleSend()}
+              editable={!sending}
+            />
+            {inputText.trim() ? (
+              <Pressable
+                testID="send-button"
+                className="bg-green-500 rounded-full px-4 py-2 items-center justify-center"
+                onPress={() => handleSend()}
+                disabled={sending}
+              >
+                <Text className="text-white font-semibold">
+                  {sending ? '...' : 'Send'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
+
         <Pressable
           testID="paperclip-button"
           className={`rounded-full p-2 items-center justify-center ${attachmentMenuOpen ? 'bg-emerald-200' : 'bg-gray-100'}`}
@@ -722,6 +832,22 @@ export default function ChatScreen() {
         </Pressable>
         <Pressable
           testID="mic-button"
+          className={`rounded-full p-2.5 items-center justify-center ${
+            isRecording
+              ? 'bg-red-600'
+              : isListening
+              ? 'bg-amber-500'
+              : 'bg-green-500'
+          }`}
+          onPressIn={startVoiceRecording}
+          onPressOut={stopVoiceRecordingAndSend}
+          onPress={() => {
+            if (isRecording) {
+              stopVoiceRecordingAndSend();
+            } else {
+              startVoiceRecording();
+            }
+          }}
           className={`rounded-full p-2 items-center justify-center ${isListening ? 'bg-red-500' : 'bg-gray-200'}`}
           onPress={handleVoiceInput}
         >
@@ -741,8 +867,8 @@ export default function ChatScreen() {
           onPress={() => handleSend()}
           disabled={sending || (!inputText.trim() && !previewAttachment && !captionText.trim())}
         >
-          <Text className="text-white font-semibold">
-            {sending ? '...' : 'Send'}
+          <Text className="text-xs font-bold text-white">
+            {isRecording ? 'REC' : 'MIC'}
           </Text>
         </Pressable>
       </View>
