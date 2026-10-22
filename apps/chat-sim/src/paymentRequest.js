@@ -26,3 +26,20 @@ export function normalizeSep7Uri(value) {
 export function isValidSep7Uri(value) {
   return normalizeSep7Uri(value) !== '';
 }
+
+/**
+ * Build a SEP-0007 payment URI only when the simulator has enough real data.
+ * Native XLM needs no issuer; issued assets are intentionally not guessed.
+ */
+export function buildSep7PaymentUri({ destination, amount, asset } = {}) {
+  const isStellarAddress = /^(?:G[A-Z2-7]{55}|M[A-Z2-7]{68})$/.test(destination || '');
+  const numericAmount = Number(amount);
+  if (!isStellarAddress || !Number.isFinite(numericAmount) || numericAmount <= 0) return '';
+  if (typeof asset !== 'string' || asset.toUpperCase() !== 'XLM') return '';
+
+  const params = new URLSearchParams({
+    destination,
+    amount: String(numericAmount),
+  });
+  return `web+stellar:pay?${params.toString()}`;
+}
