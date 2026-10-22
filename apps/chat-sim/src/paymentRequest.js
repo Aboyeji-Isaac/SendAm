@@ -17,7 +17,7 @@ export function normalizeSep7Uri(value) {
   const operation = uri.slice('web+stellar:'.length, queryStart).toLowerCase();
   const params = new URLSearchParams(uri.slice(queryStart + 1));
 
-  if (operation === 'pay' && !params.get('destination')) return '';
+  if (operation === 'pay' && !/^(?:G[A-Z2-7]{55}|M[A-Z2-7]{68})$/.test(params.get('destination') || '')) return '';
   if (operation === 'tx' && !params.get('xdr')) return '';
 
   return uri;
