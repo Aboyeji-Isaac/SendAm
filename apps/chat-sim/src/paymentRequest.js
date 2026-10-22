@@ -7,7 +7,7 @@
 export function normalizeSep7Uri(value) {
   if (typeof value !== 'string') return '';
   const uri = value.trim();
-  if (!uri || uri.length > 3000 || !/^web\+stellar:(pay|tx)\?/i.test(uri)) {
+  if (!uri || uri.length > 2000 || !/^web\+stellar:(pay|tx)\?/i.test(uri)) {
     return '';
   }
 
