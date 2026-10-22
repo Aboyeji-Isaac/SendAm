@@ -617,7 +617,7 @@ export default function ChatScreen() {
               {normalizeSep7Uri(paymentLink)}
             </Text>
             {copyStatus ? (
-              <Text accessibilityRole="status" className="mt-2 text-sm text-emerald-700">{copyStatus}</Text>
+              <Text accessibilityLiveRegion="polite" className="mt-2 text-sm text-emerald-700">{copyStatus}</Text>
             ) : null}
             <View className="mt-4 flex-row gap-2">
               <Pressable
