@@ -21,7 +21,7 @@ import {
 } from './engine/paymentStateMachine';
 import { voiceService } from './engine/voiceService';
 import { API_BASE_URL } from './config';
-import { isValidSep7Uri, normalizeSep7Uri } from './paymentRequest';
+import { buildSep7PaymentUri, isValidSep7Uri, normalizeSep7Uri } from './paymentRequest';
 
 export function formatTranscriptText(messages, phoneNumber) {
   const lines = [
@@ -310,6 +310,13 @@ export default function ChatScreen() {
   }
 
   function handleOpenQrModal() {
+    const context = machineSnapshot.context;
+    const generatedUri = buildSep7PaymentUri({
+      destination: context.recipient,
+      amount: context.amount,
+      asset: context.asset,
+    });
+    if (generatedUri) setPaymentLink(generatedUri);
     setQrError('');
     setCopyStatus('');
     setQrModalVisible(true);
