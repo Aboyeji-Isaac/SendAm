@@ -27,17 +27,17 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  wallets       Wallet[]
-  aliases       Alias[]
-  contacts      Contact[]      @relation("ContactOwner")
-  transactions  Transaction[]
-  kycProfile    KycProfile?
-  voiceCommands VoiceCommand[]
-  notifications Notification[]
+  wallets           Wallet[]
+  aliases           Alias[]
+  contacts          Contact[]          @relation("ContactOwner")
+  transactions      Transaction[]
+  kycProfile        KycProfile?
+  voiceCommands     VoiceCommand[]
+  notifications     Notification[]
   recurringPayments RecurringPayment[]
-  quotes        Quote[]
-  restSessions  RestSession[]
-  supportCases  SupportCase[]
+  quotes            Quote[]
+  restSessions      RestSession[]
+  supportCases      SupportCase[]
 
   privacyRequests    PrivacyRequest[]
   legalHolds         LegalHold[]
@@ -50,7 +50,11 @@ model User {
   paymentConfirmations    PaymentConfirmation[]
   userErasures            UserErasure[]
 
-  voiceProfile            VoiceProfile?
+  voiceProfile VoiceProfile?
+
+  muxedSubAccounts     MuxedSubAccount[]
+  depositCredits       DepositCredit[]
+  mnemonicExportGrants MnemonicExportGrant[]
 
   @@index([anonymizedAt])
   @@index([createdAt, id])
@@ -123,6 +127,11 @@ model Wallet {
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
+  muxedSubAccounts     MuxedSubAccount[]
+  depositCredits       DepositCredit[]
+  mnemonicExportGrants MnemonicExportGrant[]
+  trustlineRequests    TrustlineRequest[]
+
   // Network is part of wallet identity: the same user may hold one wallet per
   // chain per network, and testnet material can never satisfy a mainnet lookup.
   @@unique([userId, chain, network])
@@ -170,8 +179,8 @@ model Transaction {
   confirmation              PaymentConfirmation?
   journalEntries            JournalEntry[]
   reconciliationCheckpoints ReconciliationCheckpoint[]
-  earnedFeeVoucher          FeeVoucher? @relation("EarnedFeeVoucher")
-  redeemedFeeVoucher        FeeVoucher? @relation("RedeemedFeeVoucher")
+  earnedFeeVoucher          FeeVoucher?                @relation("EarnedFeeVoucher")
+  redeemedFeeVoucher        FeeVoucher?                @relation("RedeemedFeeVoucher")
 
   @@index([userId, createdAt])
   @@index([status])
@@ -433,13 +442,13 @@ model VoiceCommand {
 }
 
 model VoiceProfile {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  embedding       Bytes    // Voice embedding vector (e.g., from speaker verification model)
-  enrollmentCount Int      @default(1)
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  embedding       Bytes // Voice embedding vector (e.g., from speaker verification model)
+  enrollmentCount Int       @default(1)
   lastVerifiedAt  DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -662,24 +671,24 @@ model AdminRole {
 }
 
 model ProcessedMessage {
-  id        String    @id @default(cuid())
-  messageId String    @unique
-  status    String    @default("completed")
+  id        String   @id @default(cuid())
+  messageId String   @unique
+  status    String   @default("completed")
   lastError String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([status, updatedAt])
 }
 
 model SecretRotation {
-  id          String    @id @default(cuid())
-  category    String
-  hash        String
-  rotatedBy   String
-  rotatedAt   DateTime  @default(now())
-  expiresAt   DateTime
-  createdAt   DateTime  @default(now())
+  id        String   @id @default(cuid())
+  category  String
+  hash      String
+  rotatedBy String
+  rotatedAt DateTime @default(now())
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([category, rotatedAt])
   @@index([expiresAt])
@@ -1089,4 +1098,147 @@ model RecurringPayment {
   @@unique([userId, reference])
   @@index([status, nextRunAt])
   @@index([userId, status])
+}
+
+/// A virtual sub-wallet addressed by a Stellar MED25519 muxed address (#958).
+///
+/// Muxed accounts do NOT create on-chain accounts: every sub-account shares
+/// the single underlying `baseAccount`, its XLM reserves and its trustlines.
+/// This table is purely the off-chain mapping from a 64-bit sub-account id to
+/// the user whose balance an inbound payment belongs to.
+model MuxedSubAccount {
+  id String @id @default(cuid())
+
+  userId   String
+  walletId String
+
+  /// The 64-bit muxed sub-account id, held as a decimal STRING. A JS Number
+  /// cannot represent the full uint64 range (2^53-1 < 2^64-1), so every read
+  /// and write of this value goes through BigInt. Never parse it with
+  /// Number()/parseInt().
+  muxedId String
+
+  /// The `G...` account the muxed address pools under — shared by every
+  /// sub-account on this wallet.
+  baseAccount String
+
+  network String
+
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  /// A sub-account id is unique per underlying base account, which is what
+  /// makes `(baseAccount, muxedId)` a safe routing key.
+  @@unique([baseAccount, muxedId])
+  @@index([userId])
+  @@index([walletId])
+}
+
+/// One credited inbound deposit (#958).
+///
+/// `stellarPaymentId` is Horizon's paging token for the payment operation and
+/// is UNIQUE: it is the idempotency key that makes crediting a deposit
+/// exactly-once even if the poller replays a cursor, restarts mid-write, or
+/// runs on two replicas at the same time.
+model DepositCredit {
+  id String @id @default(cuid())
+
+  stellarPaymentId String @unique
+
+  userId   String
+  walletId String
+
+  /// Decimal string; null when the payment arrived on the base address rather
+  /// than a muxed sub-address.
+  muxedId String?
+
+  asset       String
+  assetIssuer String?
+  /// Canonical decimal string validated by src/utils/money.js.
+  amount      String
+  network     String
+
+  /// The double-entry journal entry this credit posted, when the ledger is
+  /// available.
+  journalEntryId String?
+
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([walletId, createdAt])
+}
+
+/// A one-time authorization to export a wallet's recovery material (#960).
+///
+/// Holds NO secret material: only the HASH of the out-of-band challenge code,
+/// plus the state machine that enforces PIN + out-of-band verification, an
+/// expiry window, bounded attempts and single use. The mnemonic itself is
+/// never persisted here or anywhere else.
+model MnemonicExportGrant {
+  id String @id @default(cuid())
+
+  userId   String
+  walletId String
+
+  /// pending | authorized | consumed | expired | revoked
+  status String @default("pending")
+
+  /// HMAC of the out-of-band challenge code. The plaintext code is sent to the
+  /// user's own channel and never stored, logged or returned by the API.
+  challengeHash String
+
+  challengeExpiresAt DateTime
+  challengeAttempts  Int      @default(0)
+
+  pinVerifiedAt DateTime?
+  otpVerifiedAt DateTime?
+  authorizedAt  DateTime?
+  /// Set the moment the export is served. A consumed grant can never be
+  /// replayed — a second export needs a fresh grant.
+  consumedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, challengeExpiresAt])
+}
+
+/// A tracked ChangeTrust submission for one asset corridor (#962).
+///
+/// `(walletId, assetCode, assetIssuer)` is UNIQUE so a trustline for a given
+/// asset identity is only ever submitted once per wallet — concurrent
+/// transfer attempts converge on the same row instead of racing two
+/// ChangeTrust operations onto the ledger.
+model TrustlineRequest {
+  id String @id @default(cuid())
+
+  walletId String
+
+  assetCode   String
+  assetIssuer String
+  network     String
+
+  /// pending | submitted | established | failed
+  status String @default("pending")
+
+  txHash    String?
+  attempts  Int     @default(0)
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, assetCode, assetIssuer])
+  @@index([status, updatedAt])
 }
