@@ -1171,13 +1171,6 @@ model RecurringPayment {
 /// expiry window, bounded attempts and single use. The mnemonic itself is
 /// never persisted here or anywhere else.
 model MnemonicExportGrant {
-/// A virtual sub-wallet addressed by a Stellar MED25519 muxed address (#958).
-///
-/// Muxed accounts do NOT create on-chain accounts: every sub-account shares
-/// the single underlying `baseAccount`, its XLM reserves and its trustlines.
-/// This table is purely the off-chain mapping from a 64-bit sub-account id to
-/// the user whose balance an inbound payment belongs to.
-model MuxedSubAccount {
   id String @id @default(cuid())
 
   userId   String
@@ -1202,6 +1195,26 @@ model MuxedSubAccount {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, challengeExpiresAt])
+}
+
+/// A virtual sub-wallet addressed by a Stellar MED25519 muxed address (#958).
+///
+/// Muxed accounts do NOT create on-chain accounts: every sub-account shares
+/// the single underlying `baseAccount`, its XLM reserves and its trustlines.
+/// This table is purely the off-chain mapping from a 64-bit sub-account id to
+/// the user whose balance an inbound payment belongs to.
+model MuxedSubAccount {
+  id String @id @default(cuid())
+
+  userId   String
+  walletId String
+
   /// The 64-bit muxed sub-account id, held as a decimal STRING. A JS Number
   /// cannot represent the full uint64 range (2^53-1 < 2^64-1), so every read
   /// and write of this value goes through BigInt. Never parse it with
@@ -1259,8 +1272,6 @@ model DepositCredit {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
-  @@index([userId, status])
-  @@index([status, challengeExpiresAt])
   @@index([userId, createdAt])
   @@index([walletId, createdAt])
 }
